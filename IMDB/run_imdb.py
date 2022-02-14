@@ -16,7 +16,7 @@ from IMDB.imdb import load_imdb, MovieReviewDataset, create_data_loader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, BertForSequenceClassification
 from sklearn.model_selection import train_test_split
 
-from attribution import saliency_map, softmax, compute_joint_attention, get_flow_relevance_for_all_layers , _compute_rollout_attention
+from attribution import softmax, compute_joint_attention, get_flow_relevance_for_all_layers , _compute_rollout_attention
 from utils import flip, set_up_dir
 import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -218,18 +218,13 @@ for flip_case in ['generate', 'pruning']:
 
 
             if case =='random':
-                attribution = np.random.normal(0,1, np.array(words).shape) #np.random.normal(np.array(words).shape)
+                attribution = np.random.normal(0,1, np.array(words).shape)
 
             elif case == 'attn_last':
                 attribution = np.mean([x_.sum(0) for x_ in model.attention_probs[max(layer_idxs)].detach().cpu().numpy()[0]],0)
 
             elif case == 'attn_max_last':
                 attribution = np.max([x_.sum(0) for x_ in model.attention_probs[max(layer_idxs)].detach().cpu().numpy()[0]],0)
-
-            elif case == 'saliency':
-                attribution = saliency_map(model=model, input_ids=input_ids, 
-                                        segment_ids=token_type_ids,
-                                        input_mask=attention_mask, device=device)
 
             elif 'rollout' in case:
 
@@ -323,9 +318,6 @@ for flip_case in ['generate', 'pruning']:
 
             if j%500==0:
                 print('****',j)
-
-           # if j ==10:
-            #    break
 
             j+=1
         all_flips[case]= {'E':E, 'M':M, 'Evolution':EVOLUTION} 

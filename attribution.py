@@ -10,9 +10,9 @@ import os
 import torch
 
 def softmax(x):
-    """Compute softmax values for each sets of scores in x."""
+    '''Compute softmax values for each sets of scores in x.'''
     e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum(axis=0) # only difference
+    return e_x / e_x.sum(axis=0) 
 
 
 def get_adjmat(mat, input_tokens):
@@ -34,50 +34,6 @@ def get_adjmat(mat, input_tokens):
     return adj_mat, labels_to_index 
 
 
-def draw_attention_graph(adjmat, labels_to_index, n_layers, length):
-    A = adjmat
-    G=nx.from_numpy_matrix(A, create_using=nx.DiGraph())
-    for i in np.arange(A.shape[0]):
-        for j in np.arange(A.shape[1]):
-            nx.set_edge_attributes(G, {(i,j): A[i,j]}, 'capacity')
-
-    pos = {}
-    label_pos = {}
-    for i in np.arange(n_layers+1):
-        for k_f in np.arange(length):
-            pos[i*length+k_f] = ((i+0.4)*2, length - k_f)
-            label_pos[i*length+k_f] = (i*2, length - k_f)
-
-    index_to_labels = {}
-    for key in labels_to_index:
-        index_to_labels[labels_to_index[key]] = key.split("_")[-1]
-        if labels_to_index[key] >= length:
-            index_to_labels[labels_to_index[key]] = ''
-
-    #plt.figure(1,figsize=(20,12))
-
-    nx.draw_networkx_nodes(G,pos,node_color='green', labels=index_to_labels, node_size=50)
-    nx.draw_networkx_labels(G,pos=label_pos, labels=index_to_labels, font_size=18)
-
-    all_weights = []
-    #4 a. Iterate through the graph nodes to gather all the weights
-    for (node1,node2,data) in G.edges(data=True):
-        all_weights.append(data['weight']) #we'll use this when determining edge thickness
-
-    #4 b. Get unique weights
-    unique_weights = list(set(all_weights))
-
-    #4 c. Plot the edges - one by one!
-    for weight in unique_weights:
-        #4 d. Form a filtered list with just the weight you want to draw
-        weighted_edges = [(node1,node2) for (node1,node2,edge_attr) in G.edges(data=True) if edge_attr['weight']==weight]
-        #4 e. I think multiplying by [num_nodes/sum(all_weights)] makes the graphs edges look cleaner
-        
-        w = weight #(weight - min(all_weights))/(max(all_weights) - min(all_weights))
-        width = w
-        nx.draw_networkx_edges(G,pos,edgelist=weighted_edges,width=width, edge_color='darkblue')
-    
-    return G
     
 def compute_flows(G, labels_to_index, input_nodes, length):
     number_of_nodes = len(labels_to_index)
@@ -131,19 +87,6 @@ def compute_joint_attention(att_mat, add_residual=True):
     return joint_attentions
 
 
-def spearmanr(x, y):
-    """ `x`, `y` --> pd.Series"""
-    x = pd.Series(x)
-    y = pd.Series(y)
-    assert x.shape == y.shape
-    rx = x.rank(method='dense')
-    ry = y.rank(method='dense')
-    d = rx - ry
-    dsq = np.sum(np.square(d))
-    n = x.shape[0]
-    coef = 1. - (6. * dsq) / (n * (n**2 - 1.))
-    return [coef]
-
 def get_raw_att_relevance(full_att_mat, input_tokens, layer=-1):
     cls_index = 0
     return full_att_mat[layer].sum(axis=0).sum(axis=0)
@@ -167,6 +110,10 @@ def compute_node_flow(G, labels_to_index, input_nodes, output_nodes,length):
     return flow_values
 
 def get_flow_relevance(full_att_mat, input_tokens, layer):
+    '''
+    Quantifying Attention Flow in Transformers (S Abnar and W Zuidema, ACL 2020)
+    https://github.com/samiraabnar/attention_flow
+    '''
     
     res_att_mat = full_att_mat.sum(axis=1)/full_att_mat.shape[1]
     res_att_mat = res_att_mat + np.eye(res_att_mat.shape[1])[None,...]
@@ -229,53 +176,12 @@ def get_flow_relevance_for_all_layers(encoded, x, tokens, layers, pad_token):
     return all_layers_flow_relevance
 
 
-
-### saliency ###
-
-def _register_embedding_list_hook(model, embeddings_list):
-    def forward_hook(module, inputs, output):
-        embeddings_list.append(output.squeeze(0).clone().cpu().detach().numpy())
-    embedding_layer = model.embeds.word_embeddings
-    handle = embedding_layer.register_forward_hook(forward_hook)
-    return handle
-
-def _register_embedding_gradient_hooks(model, embeddings_gradients):
-    def hook_layers(module, grad_in, grad_out):
-        embeddings_gradients.append(grad_out[0])
-    embedding_layer = model.embeds.word_embeddings
-    hook = embedding_layer.register_backward_hook(hook_layers)
-    return hook
-
-def saliency_map(model, input_ids, segment_ids, input_mask, device='cpu'):
-    torch.enable_grad()
-    model.eval()
-    embeddings_list = []
-    handle = _register_embedding_list_hook(model, embeddings_list)
-    embeddings_gradients = []
-    hook = _register_embedding_gradient_hooks(model, embeddings_gradients)
-    # embeddings_gradients[0].shape: torch.Size([1, sen_len, 768]), only contains one sample
-
-    model.zero_grad()
-    A = model(input_ids, token_type_ids=segment_ids, attention_mask=input_mask, 
-              labels = torch.tensor([0]*len(input_ids)).long().to(device))
-    logits = A['logits'][0]
-    
-    pred_label_ids = np.argmax(logits.detach().cpu().numpy())
-    logits[pred_label_ids].backward()
-    handle.remove()
-    hook.remove()
-
-    saliency_grad = embeddings_gradients[0].detach().cpu().numpy()       
-    saliency_grad = np.sum(saliency_grad[0] * embeddings_list[0], axis=1)
-    norm = np.linalg.norm(saliency_grad, ord=1)
-    saliency_grad = [e / norm for e in saliency_grad] 
-    
-    return saliency_grad
-
-
-#### rollout ####
-
 def compute_joint_attention(att_mat, add_residual=True):
+    '''
+    Quantifying Attention Flow in Transformers (S Abnar and W Zuidema, ACL 2020)
+    https://github.com/samiraabnar/attention_flow
+    '''
+    
     if add_residual:
         residual_att = np.eye(att_mat.shape[1])[None,...]
         aug_att_mat = att_mat + residual_att

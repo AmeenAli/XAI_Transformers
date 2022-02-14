@@ -16,7 +16,7 @@ from sst import get_sst_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, BertForSequenceClassification
 from sklearn.model_selection import train_test_split
 from datasets import load_dataset, load_metric
-from attribution import saliency_map, softmax, compute_joint_attention, get_flow_relevance_for_all_layers , _compute_rollout_attention
+from attribution import softmax, compute_joint_attention, get_flow_relevance_for_all_layers , _compute_rollout_attention
 from utils import flip, set_up_dir
 import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -251,7 +251,6 @@ for flip_case in [ 'generate' , 'pruning']:
             M.append(m)
             E.append(e)
             EVOLUTION.append(evolution)
-            
             
 
             if j%500==0:
